@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Horno | De La Monja</title>
+<title>Pan Artesanal | De La Monja</title>
 
 <style>
 :root{
@@ -23,83 +23,44 @@ body{
 }
 
 h1,h2{text-align:center;}
-
-.section{margin-top:60px;}
-
-input,button{
-    width:100%;
-    padding:10px;
-    margin-top:10px;
-    box-sizing:border-box;
-    font-family:inherit;
-}
-
-button{
-    background:var(--blue);
-    color:white;
-    border:none;
-    cursor:pointer;
-}
-
-button.secondary{
-    background:#eee;
-    color:var(--blue);
-}
-
-.item{
-    border-bottom:1px solid #ddd;
-    padding:20px 0;
-}
-
-.row{
-    display:flex;
-    justify-content:space-between;
-    flex-wrap:wrap;
-    gap:10px;
-}
-
-.small{
-    width:auto;
-    padding:6px 12px;
-}
-
-.total{
-    font-weight:bold;
-    margin-top:10px;
-    font-size:1.1rem;
-}
+.product{border-bottom:1px solid #ddd;padding:20px 0;}
+button{padding:8px 14px;background:var(--blue);color:white;border:none;cursor:pointer;}
+input,textarea{width:100%;padding:10px;margin-top:10px;border:1px solid #ddd;}
+.section{margin-top:50px;}
+.total{font-weight:bold;font-size:1.2rem;margin-top:10px;}
 </style>
 </head>
 <body>
 
 <img src="logo.png" style="display:block;margin:0 auto 30px;max-width:200px;">
+<h1>Pan Artesanal</h1>
 
-<h1>Control de Horno</h1>
+<div id="product-list"></div>
 
 <div class="section">
-<h2>Agregar Pan</h2>
-<input id="tipo" placeholder="Tipo de pan">
-<input id="estilo" placeholder="Estilo">
-<input id="peso" placeholder="Peso / Tamaño (ej: 500g)">
-<input id="precio" type="number" placeholder="Precio">
-<input id="fecha" type="date">
-<input id="inventario" type="number" placeholder="Inventario">
-<button onclick="addProduct()">Agregar</button>
+<h2>Haz tu pedido</h2>
+<input id="name" placeholder="Nombre">
+<input id="phone" placeholder="Teléfono">
+<textarea id="notes" placeholder="Notas (opcional)"></textarea>
+<div id="review"></div>
+<div class="total" id="total"></div>
+<button onclick="submitOrder()">Enviar Pedido por WhatsApp</button>
 </div>
 
 <div class="section">
-<h2>Inventario</h2>
-<div id="stock-list"></div>
-</div>
-
-<div class="section">
-<h2>Pedidos</h2>
-<div id="orders-list"></div>
+<h2>Pedido Especial (Pre-Orden)</h2>
+<input id="pre-name" placeholder="Nombre">
+<input id="pre-phone" placeholder="Teléfono">
+<input id="pre-product" placeholder="Producto">
+<input id="pre-qty" type="number" placeholder="Cantidad">
+<input id="pre-date" type="date">
+<textarea id="pre-notes" placeholder="Notas"></textarea>
+<button onclick="submitPreOrder()">Enviar Pre-Orden</button>
 </div>
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getDatabase, ref, push, onValue, update, remove, runTransaction, get }
+import { getDatabase, ref, onValue, push, runTransaction }
 from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
 const firebaseConfig={
@@ -112,103 +73,183 @@ const firebaseConfig={
 const app=initializeApp(firebaseConfig);
 const db=getDatabase(app);
 
-/* ADD PRODUCT */
+const PHONE_NUMBER="523411224987";
 
-window.addProduct=()=>{
-    const tipo=tipoInput.value.trim();
-    const estilo=estiloInput.value.trim();
-    const peso=pesoInput.value.trim();
-    const precio=parseFloat(precioInput.value);
-    const fecha=fechaInput.value;
-    const inventario=parseInt(inventarioInput.value);
-
-    if(!tipo||!precio||!inventario) return;
-
-    push(ref(db,"bakeryStock"),{
-        tipo,estilo,weight:peso,price:precio,
-        bakeDate:fecha,inventory:inventario,active:true
-    });
-
-    document.querySelectorAll("input").forEach(i=>i.value="");
-};
-
-const tipoInput=document.getElementById("tipo");
-const estiloInput=document.getElementById("estilo");
-const pesoInput=document.getElementById("peso");
-const precioInput=document.getElementById("precio");
-const fechaInput=document.getElementById("fecha");
-const inventarioInput=document.getElementById("inventario");
-
-/* STOCK */
+let products={},cart={};
 
 onValue(ref(db,"bakeryStock"),snap=>{
-    const wrap=document.getElementById("stock-list");
-    wrap.innerHTML="";
-    if(!snap.val()) return;
+    products=snap.val()||{};
+    renderProducts();
+});
 
-    Object.entries(snap.val()).forEach(([id,item])=>{
+function renderProducts(){
+    const wrap=document.getElementById("product-list");
+    wrap.innerHTML="";
+    Object.entries(products).forEach(([id,item])=>{
+        if(!item.active||item.inventory<=0) return;
+        const qty=cart[id]||0;
         wrap.innerHTML+=`
-            <div class="item">
+            <div class="product">
                 <strong>${item.tipo} — ${item.estilo||""}</strong><br>
                 ${item.weight||""} | $${item.price}<br>
-                Horneado: ${item.bakeDate||"-"}<br>
-                Stock: ${item.inventory}
-                <div class="row">
-                    <button class="small" onclick="changeStock('${id}',1)">+</button>
-                    <button class="small" onclick="changeStock('${id}',-1)">-</button>
-                    <button class="small secondary" onclick="deleteProduct('${id}')">Eliminar</button>
-                </div>
+                Disponible: ${item.inventory}<br><br>
+                <button onclick="add('${id}')">+</button>
+                <button onclick="removeItem('${id}')">-</button>
+                ${qty}
             </div>
         `;
     });
-});
+    updateReview();
+}
 
-window.changeStock=(id,amount)=>{
-    runTransaction(ref(db,"bakeryStock/"+id+"/inventory"),c=>{
-        return Math.max(0,(c||0)+amount);
-    });
+window.add=id=>{
+    const item=products[id];
+    if(!cart[id]) cart[id]=0;
+    if(cart[id]>=item.inventory) return;
+    cart[id]++;
+    updateReview();
 };
 
-window.deleteProduct=id=>{
-    if(confirm("Eliminar producto?"))
-        remove(ref(db,"bakeryStock/"+id));
+window.removeItem=id=>{
+    if(cart[id]) cart[id]--;
+    updateReview();
 };
 
-/* ORDERS */
-
-onValue(ref(db,"bakeryOrders"),snap=>{
-    const wrap=document.getElementById("orders-list");
-    wrap.innerHTML="";
-    if(!snap.val()) return;
-
-    Object.entries(snap.val())
-    .sort((a,b)=>b[1].time-a[1].time)
-    .forEach(([id,order])=>{
-        let lines="";
-        order.items.forEach(i=>{
-            lines+=`
-                ${i.tipo} — ${i.estilo||""}<br>
-                ${i.weight||""}<br>
-                $${i.price} x${i.quantity} = $${i.subtotal}<br><br>
-            `;
-        });
-
-        wrap.innerHTML+=`
-            <div class="item">
-                <strong>
-                Pedido ${order.orderNumber}
-                ${order.type==="preorder"?" (PRE-ORDEN)":""}
-                </strong><br>
-                ${order.name}<br>
-                Tel: ${order.phone}<br>
-                ${order.type==="preorder"&&order.desiredDate?`Entrega solicitada: ${order.desiredDate}<br><br>`:"<br>"}
-                ${lines}
-                <div class="total">TOTAL: $${order.total}</div>
-                ${order.notes?`<br>Notas: ${order.notes}`:""}
-            </div>
-        `;
+function updateReview(){
+    let total=0,html="";
+    Object.entries(cart).forEach(([id,qty])=>{
+        if(qty>0){
+            const item=products[id];
+            const subtotal=item.price*qty;
+            total+=subtotal;
+            html+=`${item.tipo} — ${item.estilo||""} x${qty} = $${subtotal}<br>`;
+        }
     });
-});
+    document.getElementById("review").innerHTML=html;
+    document.getElementById("total").innerText="Total: $"+total;
+}
+
+function getISOWeek(){
+    const d=new Date();
+    d.setHours(0,0,0,0);
+    d.setDate(d.getDate()+4-(d.getDay()||7));
+    const yearStart=new Date(d.getFullYear(),0,1);
+    const week=Math.ceil((((d-yearStart)/86400000)+1)/7);
+    return {year:d.getFullYear(),week};
+}
+
+async function generateOrderNumber(){
+    const {year,week}=getISOWeek();
+    const weekKey=`${year}-W${week}`;
+    const refCounter=ref(db,"bakeryMeta/weeklyCounters/"+weekKey);
+    const result=await runTransaction(refCounter,c=>(c||0)+1);
+    const num=result.snapshot.val();
+    return `${weekKey}-${String(num).padStart(3,"0")}`;
+}
+
+window.submitOrder=async()=>{
+    const name=nameInput.value.trim();
+    const phone=phoneInput.value.trim();
+    if(!name||!phone) return;
+
+    const orderNumber=await generateOrderNumber();
+    let items=[],total=0;
+
+    for(const [id,qty] of Object.entries(cart)){
+        if(qty>0){
+            const item=products[id];
+            const subtotal=item.price*qty;
+            total+=subtotal;
+
+            items.push({
+                id,
+                tipo:item.tipo,
+                estilo:item.estilo,
+                weight:item.weight,
+                price:item.price,
+                quantity:qty,
+                subtotal
+            });
+
+            await runTransaction(ref(db,"bakeryStock/"+id+"/inventory"),
+                c=>Math.max(0,(c||0)-qty));
+        }
+    }
+
+    if(items.length===0) return;
+
+    push(ref(db,"bakeryOrders"),{
+        orderNumber,
+        type:"normal",
+        name,phone,
+        notes:notesInput.value.trim(),
+        items,total,
+        time:Date.now(),
+        status:"pending"
+    });
+
+    let msg=`Pedido ${orderNumber}\n\nHola De La Monja 🥖\nSoy ${name}\nTel: ${phone}\n\n`;
+    items.forEach(i=>{
+        msg+=`• ${i.tipo} — ${i.estilo||""}\n`;
+        msg+=`${i.weight||""}\n`;
+        msg+=`$${i.price} x${i.quantity} = $${i.subtotal}\n\n`;
+    });
+    msg+=`TOTAL: $${total}\n`;
+
+    window.open(`https://wa.me/${PHONE_NUMBER}?text=${encodeURIComponent(msg)}`,"_blank");
+
+    cart={};
+    updateReview();
+};
+
+window.submitPreOrder=async()=>{
+    const name=preName.value.trim();
+    const phone=prePhone.value.trim();
+    const product=preProduct.value.trim();
+    const qty=parseInt(preQty.value);
+    const date=preDate.value;
+    const notes=preNotes.value.trim();
+
+    if(!name||!phone||!product||!qty||!date) return;
+
+    const orderNumber=await generateOrderNumber();
+
+    push(ref(db,"bakeryOrders"),{
+        orderNumber,
+        type:"preorder",
+        desiredDate:date,
+        name,phone,notes,
+        items:[{
+            tipo:product,
+            estilo:"Pre-Orden",
+            weight:"",
+            price:0,
+            quantity:qty,
+            subtotal:0
+        }],
+        total:0,
+        time:Date.now(),
+        status:"pending"
+    });
+
+    let msg=`Pedido ${orderNumber} (PRE-ORDEN)\n\nHola De La Monja 🥖\n`;
+    msg+=`Soy ${name}\nTel: ${phone}\n\n`;
+    msg+=`Producto: ${product}\nCantidad: ${qty}\nEntrega solicitada: ${date}\n`;
+    if(notes) msg+=`Notas: ${notes}\n`;
+
+    window.open(`https://wa.me/${PHONE_NUMBER}?text=${encodeURIComponent(msg)}`,"_blank");
+};
+
+const nameInput=document.getElementById("name");
+const phoneInput=document.getElementById("phone");
+const notesInput=document.getElementById("notes");
+const preName=document.getElementById("pre-name");
+const prePhone=document.getElementById("pre-phone");
+const preProduct=document.getElementById("pre-product");
+const preQty=document.getElementById("pre-qty");
+const preDate=document.getElementById("pre-date");
+const preNotes=document.getElementById("pre-notes");
 </script>
+
 </body>
 </html>
